@@ -1,0 +1,98 @@
+---
+title: "Practical Machine Learning Project"
+author: "Andrew Weston"
+date: "April 25, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, echo = TRUE, warning = FALSE)
+```
+
+##Summary
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect personal exercise data in large quantities and very inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants  to predict the manner in which they did specific exercises.
+
+
+The training data for this project are available here:
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data are available here:
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+##Loading the data
+```{r}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+
+traindata <- read.csv("pml-training.csv")
+testdata  <- read.csv("pml-testing.csv")
+```
+
+Our goal is to predict the manner in which the subject performed the exercise (stored in the "classe" field). This is recorded as "A", "B", "C", "D" or "E." Participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+##Processing the Data
+```{r}
+colnames(traindata)
+```
+We have a tremendous number of variables to predict on, and would like to remove some of the less relevant ones (i.e. timestamp, subject name).
+
+```{r}
+#dump NA values
+traindata <- traindata[, colSums(is.na(traindata)) == 0] 
+testdata <- testdata[, colSums(is.na(testdata)) == 0] 
+
+#dump the first 7 columns (not relevant to predictions)
+traindata <- traindata[,8:length(names(traindata))]
+testdata <- testdata[,8:length(names(testdata))]
+
+dim(traindata)
+dim(testdata)
+```
+We are predicting the value of `classe` so it is missing from the testdata. We would like to remove the other fields (columns) that are in traindata but not testdata, but save the `classe` column in traindata. In addition, testdata has a column called `problem_id` which does not exist in traindata so we will end up with the same number of columns in both data sets.
+```{r}
+classe <- traindata$classe
+traindata <- traindata[,which(names(traindata) %in% names(testdata))]
+traindata$classe <- classe
+dim(traindata)
+```
+Now we are ready to split the training data 60/40 for training and validation respectively.
+```{r}
+set.seed(123)
+rf_train <- createDataPartition(traindata$classe, p=0.60, list=F)
+trainData <- traindata[rf_train, ]
+testData <- traindata[-rf_train, ]
+```
+##Random Forest Model
+We build a predictive model for recognizing which activity is being performed (the `classe` variable) via a Random Forest algorithm with 3-fold cross-validation. This is based on the general advice from course videos that seem to suggest Random Forest was almost always a reasonable choice (e.g. in Kaggle competitions) even if its not the best. We believe that it is reasonably accurate for the purposes of this project.
+
+```{r}
+rf_model <- train(classe ~., data = trainData, method = "rf", trControl = trainControl(method = "cv", number = 3), ntree = 25)
+rf_model
+```
+Now we need to test this model on the out-of-sample data (i.e. the other 40% of the original training data set).
+```{r}
+rf_predicted <- predict(rf_model, testData)
+confusionMatrix(testData$class, rf_predicted)
+```
+```{r}
+postResample(rf_predicted, testData$classe)
+#out of sample error
+1 - as.numeric(confusionMatrix(testData$classe, rf_predicted)$overall[1])
+```
+Our out of sample error is about 1%, which is great since we heavily restricted the complexity of our random forest so it wouldn't take very long to compute.
+
+##Prediction for the test data
+Finally we use our model to determine the values of `classe` for the 20 rows of test data that were originally given.
+```{r}
+prediction <- predict(rf_model, testdata[,-length(names(testdata))])
+prediction
+```
+
+
+
+```{r}
+tree <- rpart(classe ~ ., data=trainData, method="class")
+prp(tree)
+```
